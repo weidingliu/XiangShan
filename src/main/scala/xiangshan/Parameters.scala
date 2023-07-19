@@ -137,7 +137,7 @@ case class XSCoreParameters
   RollbackGroupSize: Int = 8,
   LoadQueueReplaySize: Int = 72,
   LoadUncacheBufferSize: Int = 20,
-  LoadQueueNWriteBanks: Int = 8, // NOTE: make sure that LoadQueueRARSize/LoadQueueRAWSize is divided by LoadQueueNWriteBanks
+  LoadQueueNWriteBanks: Int = 4, // NOTE: make sure that LoadQueueRARSize/LoadQueueRAWSize is divided by LoadQueueNWriteBanks
   StoreQueueSize: Int = 64,
   StoreQueueNWriteBanks: Int = 8, // NOTE: make sure that StoreQueueSize is divided by StoreQueueNWriteBanks
   StoreQueueForwardWithMask: Boolean = true,
@@ -159,12 +159,12 @@ case class XSCoreParameters
     FmacCnt = 4,
     FmiscCnt = 2,
     FmiscDivSqrtCnt = 0,
-    LduCnt = 2,
-    StuCnt = 2
+    LduCnt = 3,
+    StuCnt = 3
   ),
   prefetcher: Option[PrefetcherParams] = Some(SMSParams()),
-  LoadPipelineWidth: Int = 2,
-  StorePipelineWidth: Int = 2,
+  LoadPipelineWidth: Int = 3,
+  StorePipelineWidth: Int = 3,
   VecMemSrcInWidth: Int = 2,
   VecMemInstWbWidth: Int = 1,
   VecMemDispatchWidth: Int = 1,
@@ -173,7 +173,7 @@ case class XSCoreParameters
   EnsbufferWidth: Int = 2,
   UncacheBufferSize: Int = 4,
   EnableLoadToLoadForward: Boolean = true,
-  EnableFastForward: Boolean = false,
+  EnableFastForward: Boolean = true,
   EnableLdVioCheckAfterReset: Boolean = true,
   EnableSoftPrefetchAfterReset: Boolean = true,
   EnableCacheErrorAfterReset: Boolean = true,

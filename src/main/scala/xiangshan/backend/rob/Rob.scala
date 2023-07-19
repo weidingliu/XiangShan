@@ -296,7 +296,6 @@ class ExceptionGen(implicit p: Parameters) extends XSModule with HasCircularQueu
 
   def getOldest(valid: Seq[Bool], bits: Seq[RobExceptionInfo]): (Seq[Bool], Seq[RobExceptionInfo]) = {
     assert(valid.length == bits.length)
-    assert(isPow2(valid.length))
     if (valid.length == 1) {
       (valid, bits)
     } else if (valid.length == 2) {
@@ -309,7 +308,7 @@ class ExceptionGen(implicit p: Parameters) extends XSModule with HasCircularQueu
       (Seq(oldest.valid), Seq(oldest.bits))
     } else {
       val left = getOldest(valid.take(valid.length / 2), bits.take(valid.length / 2))
-      val right = getOldest(valid.takeRight(valid.length / 2), bits.takeRight(valid.length / 2))
+      val right = getOldest(valid.takeRight(valid.length - valid.length / 2), bits.takeRight(valid.length - valid.length / 2))
       getOldest(left._1 ++ right._1, left._2 ++ right._2)
     }
   }
@@ -473,6 +472,7 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
   val deqPtrVec = Wire(Vec(CommitWidth, new RobPtr))
 
   val walkPtrVec = Reg(Vec(CommitWidth, new RobPtr))
+  val lastWalkPtr = Reg(new RobPtr)
   val allowEnqueue = RegInit(true.B)
 
   val enqPtr = enqPtrVec.head
@@ -676,6 +676,7 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
 
   io.flushOut.valid := (state === s_idle) && valid(deqPtr.value) && (intrEnable || exceptionEnable || isFlushPipe) && !lastCycleFlush
   io.flushOut.bits := DontCare
+  io.flushOut.bits.isRVC := deqDispatchData.isRVC
   io.flushOut.bits.robIdx := deqPtr
   io.flushOut.bits.ftqIdx := deqDispatchData.ftqIdx
   io.flushOut.bits.ftqOffset := deqDispatchData.ftqOffset
@@ -706,9 +707,8 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
     * Commits (and walk)
     * They share the same width.
     */
-  val walkCounter = Reg(UInt(log2Up(RobSize + 1).W))
-  val shouldWalkVec = VecInit((0 until CommitWidth).map(_.U < walkCounter))
-  val walkFinished = walkCounter <= CommitWidth.U
+  val shouldWalkVec = VecInit(walkPtrVec.map(_ <= lastWalkPtr))
+  val walkFinished = VecInit(walkPtrVec.map(_ >= lastWalkPtr)).asUInt.orR
 
   require(RenameWidth <= CommitWidth)
 
@@ -763,12 +763,11 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
     }
 
     XSInfo(io.commits.isCommit && io.commits.commitValid(i),
-      "retired pc %x wen %d ldest %d pdest %x old_pdest %x data %x fflags: %b\n",
+      "retired pc %x wen %d ldest %d pdest %x data %x fflags: %b\n",
       debug_microOp(deqPtrVec(i).value).cf.pc,
       io.commits.info(i).rfWen,
       io.commits.info(i).ldest,
       io.commits.info(i).pdest,
-      io.commits.info(i).old_pdest,
       debug_exuData(deqPtrVec(i).value),
       fflagsDataRead(i)
     )
@@ -832,7 +831,6 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
   enqPtrGenModule.io.enq := VecInit(io.enq.req.map(_.valid))
   enqPtrVec := enqPtrGenModule.io.out
 
-  val thisCycleWalkCount = Mux(walkFinished, walkCounter, CommitWidth.U)
   // next walkPtrVec:
   // (1) redirect occurs: update according to state
   // (2) walk: move forwards
@@ -847,27 +845,9 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
 
   allowEnqueue := numValidEntries + dispatchNum <= (RobSize - RenameWidth).U
 
-  val currentWalkPtr = Mux(state === s_walk, walkPtr, deqPtrVec_next(0))
   val redirectWalkDistance = distanceBetween(io.redirect.bits.robIdx, deqPtrVec_next(0))
   when (io.redirect.valid) {
-    // full condition:
-    // +& is used here because:
-    // When rob is full and the tail instruction causes a misprediction,
-    // the redirect robIdx is the deqPtr - 1. In this case, redirectWalkDistance
-    // is RobSize - 1.
-    // Since misprediction does not flush the instruction itself, flushItSelf is false.B.
-    // Previously we use `+` to count the walk distance and it causes overflows
-    // when RobSize is power of 2. We change it to `+&` to allow walkCounter to be RobSize.
-    // The width of walkCounter also needs to be changed.
-    // empty condition:
-    // When the last instruction in ROB commits and causes a flush, a redirect
-    // will be raised later. In such circumstances, the redirect robIdx is before
-    // the deqPtrVec_next(0) and will cause underflow.
-    walkCounter := Mux(isBefore(io.redirect.bits.robIdx, deqPtrVec_next(0)), 0.U,
-                       redirectWalkDistance +& !io.redirect.bits.flushItself())
-  }.elsewhen (state === s_walk) {
-    walkCounter := walkCounter - thisCycleWalkCount
-    XSInfo(p"rolling back: $enqPtr $deqPtr walk $walkPtr walkcnt $walkCounter\n")
+    lastWalkPtr := Mux(io.redirect.bits.flushItself(), io.redirect.bits.robIdx - 1.U, io.redirect.bits.robIdx)
   }
 
 
@@ -1007,10 +987,10 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
     wdata.wflags := req.ctrl.fpu.wflags
     wdata.commitType := req.ctrl.commitType
     wdata.pdest := req.pdest
-    wdata.old_pdest := req.old_pdest
     wdata.ftqIdx := req.cf.ftqPtr
     wdata.ftqOffset := req.cf.ftqOffset
     wdata.isMove := req.eliminatedMove
+    wdata.isRVC := req.cf.pd.isRVC
     wdata.pc := req.cf.pc
   }
   dispatchData.io.raddr := commitReadAddr_next
@@ -1394,8 +1374,8 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
     difftest.io.instrCnt := instrCnt
   }
 
-  val validEntriesBanks = (0 until (RobSize + 63) / 64).map(i => RegNext(PopCount(valid.drop(i * 64).take(64))))
-  val validEntries = RegNext(ParallelOperation(validEntriesBanks, (a: UInt, b: UInt) => a +& b))
+  val validEntriesBanks = (0 until (RobSize + 31) / 32).map(i => RegNext(PopCount(valid.drop(i * 32).take(32))))
+  val validEntries = RegNext(VecInit(validEntriesBanks).reduceTree(_ +& _))
   val commitMoveVec = VecInit(io.commits.commitValid.zip(commitIsMove).map{ case (v, m) => v && m })
   val commitLoadVec = VecInit(commitLoadValid)
   val commitBranchVec = VecInit(commitBranchValid)

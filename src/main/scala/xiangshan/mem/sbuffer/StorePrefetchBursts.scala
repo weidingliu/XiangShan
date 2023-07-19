@@ -83,10 +83,10 @@ class PrefetchBurstGenerator(is_store: Boolean)(implicit p: Parameters) extends 
   val io = IO(new DCacheBundle {
     val alloc = Input(Bool())
     val vaddr = Input(UInt(VAddrBits.W))
-    val prefetch_req = Vec(StorePipelineWidth, DecoupledIO(new StorePrefetchReq))
+    val prefetch_req = Vec(StorePipelineWidth-1, DecoupledIO(new StorePrefetchReq))
   })
 
-  require(StorePipelineWidth == 2)
+  require(StorePipelineWidth == 3)
 
   val SIZE = BURST_ENGINE_SIZE
 
@@ -120,7 +120,7 @@ class PrefetchBurstGenerator(is_store: Boolean)(implicit p: Parameters) extends 
   // deq
   // val deq_valids = (valids zip datas zip pagebits).map{case (v, vaddr, pgbit) => v && vaddr(PAGEOFFSET) === pagebits}
   val deq_valids = valids
-  val deq_decoupled = Wire(Vec(SIZE, Vec(StorePipelineWidth, Decoupled(new StorePrefetchReq))))
+  val deq_decoupled = Wire(Vec(SIZE, Vec(StorePipelineWidth - 1, Decoupled(new StorePrefetchReq))))
 
   (deq_valids zip deq_decoupled zip datas zip datas_next zip datas_next_next zip pagebits zip valids).foreach{case ((((((deq_valid, out_decouple), data), data_next), data_next_next), pg_bit), v) => {
     out_decouple(0).valid := deq_valid
@@ -145,7 +145,7 @@ class PrefetchBurstGenerator(is_store: Boolean)(implicit p: Parameters) extends 
       }
     }
   }}
-  for (i <- 0 until StorePipelineWidth) {
+  for (i <- 0 until StorePipelineWidth - 1) {
     arbiter(deq_decoupled.map(_(i)), io.prefetch_req(i), Some(s"spb_deq_arb${i}"))
   }
 
@@ -158,11 +158,11 @@ class StorePrefetchBursts(implicit p: Parameters) extends DCacheModule with HasS
     val enable = Input(Bool())
     val memSetPattenDetected = Input(Bool())
     val sbuffer_enq  = Flipped(Valid(new DCacheWordReqWithVaddr))
-    val prefetch_req = Vec(StorePipelineWidth, DecoupledIO(new StorePrefetchReq))
+    val prefetch_req = Vec(StorePipelineWidth-1, DecoupledIO(new StorePrefetchReq))
   })
   require(EnsbufferWidth == 2)
 
-  // meta for SPB 
+  // meta for SPB
   val N = SPB_N
   val last_st_block_addr = RegInit(0.U(VAddrBits.W))
   val saturate_counter = RegInit(0.S(SATURATE_COUNTER_BITS.W))
@@ -194,7 +194,7 @@ class StorePrefetchBursts(implicit p: Parameters) extends DCacheModule with HasS
   burst_engine.io.vaddr := get_block_addr(io.sbuffer_enq.bits.vaddr)
   burst_engine.io.prefetch_req <> io.prefetch_req
 
-  // perf 
+  // perf
   XSPerfAccumulate("trigger_burst", burst && io.enable)
   XSPerfAccumulate("trigger_check", check && io.enable)
 }
@@ -258,7 +258,7 @@ class Serializer(implicit p: Parameters) extends DCacheModule with HasStorePrefe
 class StorePfWrapper()(implicit p: Parameters) extends DCacheModule with HasStorePrefetchHelper {
   val io = IO(new DCacheBundle {
     val sbuffer_enq  = Vec(EnsbufferWidth, Flipped(Valid(new DCacheWordReqWithVaddr)))
-    val prefetch_req = Vec(StorePipelineWidth, DecoupledIO(new StorePrefetchReq))
+    val prefetch_req = Vec(StorePipelineWidth - 1, DecoupledIO(new StorePrefetchReq))
     val memSetPattenDetected = Input(Bool())
   })
 

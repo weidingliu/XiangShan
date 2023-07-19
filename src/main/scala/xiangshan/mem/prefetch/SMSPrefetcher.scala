@@ -977,7 +977,7 @@ class PrefetchTrainFilter()(implicit p: Parameters) extends XSModule with HasSMS
   val enqLen = exuParameters.LduCnt + exuParameters.StuCnt
   val enqPtrExt = RegInit(VecInit((0 until enqLen).map(_.U.asTypeOf(new Ptr))))
   val deqPtrExt = RegInit(0.U.asTypeOf(new Ptr))
-  
+
   val deqPtr = WireInit(deqPtrExt.value)
 
   require(smsParams.train_filter_size >= enqLen)
@@ -1049,7 +1049,7 @@ class PrefetchTrainFilter()(implicit p: Parameters) extends XSModule with HasSMS
 
 class SMSPrefetcher()(implicit p: Parameters) extends BasePrefecher with HasSMSModuleHelper {
 
-  require(exuParameters.LduCnt == 2)
+  require(exuParameters.LduCnt == 3)
 
   val io_agt_en = IO(Input(Bool()))
   val io_stride_en = IO(Input(Bool()))

@@ -33,7 +33,7 @@ import xiangshan.cache.mmu.{TlbRequestIO, TlbReq}
 import difftest._
 
 case class ICacheParameters(
-    nSets: Int = 256,
+    nSets: Int = 128,
     nWays: Int = 8,
     rowBits: Int = 64,
     nTLBEntries: Int = 32,
@@ -266,7 +266,7 @@ class ICacheMetaArray()(implicit p: Parameters) extends ICacheArray
   // deal with customized cache op
   require(nWays <= 32)
   io.cacheOp.resp.bits := DontCare
-  val cacheOpShouldResp = WireInit(false.B) 
+  val cacheOpShouldResp = WireInit(false.B)
   when(io.cacheOp.req.valid){
     when(
       CacheInstrucion.isReadTag(io.cacheOp.req.bits.opCode) ||
@@ -282,8 +282,8 @@ class ICacheMetaArray()(implicit p: Parameters) extends ICacheArray
       for (i <- 0 until 2) {
         tagArrays(i).io.w.req.valid := true.B
         tagArrays(i).io.w.req.bits.apply(
-          data = io.cacheOp.req.bits.write_tag_low, 
-          setIdx = io.cacheOp.req.bits.index, 
+          data = io.cacheOp.req.bits.write_tag_low,
+          setIdx = io.cacheOp.req.bits.index,
           waymask = UIntToOH(io.cacheOp.req.bits.wayNum(4, 0))
         )
       }
@@ -301,7 +301,7 @@ class ICacheMetaArray()(implicit p: Parameters) extends ICacheArray
     // }
   }
   io.cacheOp.resp.valid := RegNext(io.cacheOp.req.valid && cacheOpShouldResp)
-  io.cacheOp.resp.bits.read_tag_low := Mux(io.cacheOp.resp.valid, 
+  io.cacheOp.resp.bits.read_tag_low := Mux(io.cacheOp.resp.valid,
     tagArrays(0).io.r.resp.asTypeOf(Vec(nWays, UInt(tagBits.W)))(io.cacheOp.req.bits.wayNum),
     0.U
   )
@@ -395,7 +395,7 @@ class ICacheDataArray(implicit p: Parameters) extends ICacheArray
   val bank_0_idx = bank_0_idx_vec.last
   val bank_1_idx = bank_1_idx_vec.last
 
-  val codeArrays = (0 until 2) map { i => 
+  val codeArrays = (0 until 2) map { i =>
     val codeArray = Module(new SRAMTemplate(
       UInt(dataCodeEntryBits.W),
       set=nSets/2,
@@ -417,10 +417,10 @@ class ICacheDataArray(implicit p: Parameters) extends ICacheArray
       codeArray.io.w.req.valid := write_bank_1
       codeArray.io.w.req.bits.apply(data=write_data_code, setIdx=io.write.bits.virIdx(highestIdxBit,1), waymask=io.write.bits.waymask)
     }
-    
+
     codeArray
   }
-  
+
   io.read.ready := !io.write.valid &&
                     dataArrays.map(_.io.read.req.map(_.ready).reduce(_&&_)).reduce(_&&_) &&
                     codeArrays.map(_.io.r.req.ready).reduce(_ && _)
@@ -429,7 +429,7 @@ class ICacheDataArray(implicit p: Parameters) extends ICacheArray
   val read_codes = Wire(Vec(2,Vec(nWays,UInt(dataCodeEntryBits.W) )))
   for(((dataArray,codeArray),i) <- dataArrays.zip(codeArrays).zipWithIndex){
     read_codes(i) := codeArray.io.r.resp.asTypeOf(Vec(nWays,UInt(dataCodeEntryBits.W)))
-  } 
+  }
 
   //Parity Encode
   val write = io.write.bits
@@ -446,7 +446,7 @@ class ICacheDataArray(implicit p: Parameters) extends ICacheArray
   require(nWays <= 32)
   io.cacheOp.resp.bits := DontCare
   io.cacheOp.resp.valid := false.B
-  val cacheOpShouldResp = WireInit(false.B) 
+  val cacheOpShouldResp = WireInit(false.B)
   val dataresp = Wire(Vec(nWays,UInt(blockBits.W) ))
   dataresp := DontCare
   when(io.cacheOp.req.valid){
@@ -474,7 +474,7 @@ class ICacheDataArray(implicit p: Parameters) extends ICacheArray
       cacheOpShouldResp := true.B
     }
   }
-  
+
   io.cacheOp.resp.valid := RegNext(cacheOpShouldResp)
   val numICacheLineWords = blockBits / 64
   require(blockBits >= 64 && isPow2(blockBits))
@@ -662,7 +662,7 @@ class ICacheImp(outer: ICache) extends LazyModuleImp(outer) with HasICacheParame
   val errors = mainPipe.io.errors
   io.error <> RegNext(Mux1H(errors.map(e => e.valid -> e)))
 
-  
+
   mainPipe.io.fetch.req <> io.fetch.req
   bus.d.ready := false.B
   missUnit.io.mem_grant <> bus.d

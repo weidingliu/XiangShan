@@ -64,9 +64,9 @@ class MinimalConfig(n: Int = 1) extends Config(
         IssQueSize = 8,
         NRPhyRegs = 64,
         VirtualLoadQueueSize = 16,
-        LoadQueueRARSize = 16, 
-        LoadQueueRAWSize = 12, 
-        LoadQueueReplaySize = 8,
+        LoadQueueRARSize = 16,
+        LoadQueueRAWSize = 12,
+        LoadQueueReplaySize = 72,
         LoadUncacheBufferSize = 8,
         LoadQueueNWriteBanks = 4, // NOTE: make sure that LoadQueue{RAR, RAW, Replay}Size is divided by LoadQueueNWriteBanks.
         RollbackGroupSize = 8,
@@ -94,8 +94,8 @@ class MinimalConfig(n: Int = 1) extends Config(
           FmacCnt = 1,
           FmiscCnt = 1,
           FmiscDivSqrtCnt = 0,
-          LduCnt = 2,
-          StuCnt = 2
+          LduCnt = 3,
+          StuCnt = 3
         ),
         icacheParameters = ICacheParameters(
           nSets = 64, // 16KB ICache
@@ -334,7 +334,7 @@ class MediumConfig(n: Int = 1) extends Config(
 )
 
 class DefaultConfig(n: Int = 1) extends Config(
-  new WithNKBL3(6 * 1024, inclusive = false, banks = 4, ways = 6)
+  new WithNKBL3(16 * 1024, inclusive = false, banks = 4, ways = 16)
     ++ new WithNKBL2(2 * 512, inclusive = false, banks = 4)
     ++ new WithNKBL1D(128)
     ++ new BaseConfig(n)

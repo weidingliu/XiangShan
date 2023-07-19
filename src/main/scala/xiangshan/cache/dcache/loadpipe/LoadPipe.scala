@@ -53,7 +53,6 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
 
     // banked data read conflict
     val bank_conflict_slow = Input(Bool())
-    val bank_conflict_fast = Input(Bool())
 
     // send miss request to miss queue
     val miss_req    = DecoupledIO(new MissReq)
@@ -186,7 +185,7 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   }.otherwise {
     val s1_tag_eq_way_dup_dc = wayMap((w: Int) => tag_resp(w) === (get_tag(s1_paddr_dup_dcache))).asUInt
     s1_tag_match_way_dup_dc := wayMap((w: Int) => s1_tag_eq_way_dup_dc(w) && meta_resp(w).coh.isValid()).asUInt
-    
+
     // lsu side tag match
     val s1_tag_eq_way_dup_lsu = wayMap((w: Int) => tag_resp(w) === (get_tag(s1_paddr_dup_lsu))).asUInt
     s1_tag_match_way_dup_lsu := wayMap((w: Int) => s1_tag_eq_way_dup_lsu(w) && meta_resp(w).coh.isValid()).asUInt
@@ -352,10 +351,10 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   }
   // io.debug_s2_cache_miss := real_miss
   resp.bits.real_miss := real_miss
-  resp.bits.miss := real_miss || io.bank_conflict_slow || s2_wpu_pred_fail
+  resp.bits.miss := real_miss
   io.lsu.s2_first_hit := s2_req.isFirstIssue && s2_hit
   // load pipe need replay when there is a bank conflict or wpu predict fail
-  resp.bits.replay := (resp.bits.miss && (!io.miss_req.fire() || s2_nack)) || io.bank_conflict_slow || s2_wpu_pred_fail
+  resp.bits.replay := DontCare
   resp.bits.replayCarry.valid := resp.bits.miss
   resp.bits.replayCarry.real_way_en := s2_real_way_en
   resp.bits.meta_prefetch := s2_hit_prefetch
@@ -379,7 +378,7 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   val useful_prefetch = s2_valid && (s2_req.instrtype === DCACHE_PREFETCH_SOURCE.U) && resp.bits.handled && !io.miss_resp.merged
 
   val prefetch_hit = s2_valid && (s2_req.instrtype =/= DCACHE_PREFETCH_SOURCE.U) && s2_hit && s2_hit_prefetch && s2_req.isFirstIssue
-  
+
   io.prefetch_info.total_prefetch := total_prefetch
   io.prefetch_info.late_hit_prefetch := late_hit_prefetch
   io.prefetch_info.late_load_hit := late_load_hit
@@ -399,6 +398,8 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   io.lsu.debug_s1_hit_way := s1_tag_match_way_dup_dc
   io.lsu.s1_disable_fast_wakeup := io.disable_ld_fast_wakeup
   io.lsu.s2_bank_conflict := io.bank_conflict_slow
+  io.lsu.s2_wpu_pred_fail := s2_wpu_pred_fail
+  io.lsu.s2_mq_nack       := (resp.bits.miss && (!io.miss_req.fire() || s2_nack))
   assert(RegNext(s1_ready && s2_ready), "load pipeline should never be blocked")
 
   // --------------------------------------------------------------------------------
@@ -424,7 +425,7 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   resp.bits.error_delayed := s3_error && (s3_hit || s3_tag_error) && s3_valid
   resp.bits.data_delayed := s3_banked_data_resp_word
   resp.bits.replacementUpdated := io.replace_access.valid
-  
+
   // report tag / data / l2 error (with paddr) to bus error unit
   io.error := 0.U.asTypeOf(new L1CacheErrorInfo())
   io.error.report_to_beu := (s3_tag_error || s3_data_error) && s3_valid
@@ -445,7 +446,7 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   if (!cfg.updateReplaceOn2ndmiss) {
     // replacement is only updated on 1st miss
     // io.replace_access.valid := RegNext(RegNext(
-    //   RegNext(io.meta_read.fire()) && s1_valid && !io.lsu.s1_kill) && 
+    //   RegNext(io.meta_read.fire()) && s1_valid && !io.lsu.s1_kill) &&
     //   !s2_nack_no_mshr &&
     //   !s2_miss_merged
     // )

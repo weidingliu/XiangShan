@@ -80,6 +80,8 @@ class LsPipelineBundle(implicit p: Parameters) extends XSBundleWithMicroOp with 
 
   // For load replay
   val isLoadReplay = Bool()
+  val isFastPath = Bool()
+  val isFastReplay = Bool()
   val replayCarry = new ReplayCarry
 
   // For dcache miss load
@@ -90,9 +92,12 @@ class LsPipelineBundle(implicit p: Parameters) extends XSBundleWithMicroOp with 
 
   val forward_tlDchannel = Bool()
   val dcacheRequireReplay = Bool()
+  val delayedLoadError = Bool()
+  val lateKill = Bool()
+  val feedbacked = Bool()
 
   // loadQueueReplay index.
-  val sleepIndex = UInt(log2Up(LoadQueueReplaySize).W)
+  val schedIndex = UInt(log2Up(LoadQueueReplaySize).W)
 }
 
 class LdPrefetchTrainBundle(implicit p: Parameters) extends LsPipelineBundle {
@@ -118,7 +123,7 @@ class LdPrefetchTrainBundle(implicit p: Parameters) extends LsPipelineBundle {
     isFirstIssue := input.isFirstIssue
     hasROBEntry := input.hasROBEntry
     dcacheRequireReplay := input.dcacheRequireReplay
-    sleepIndex := input.sleepIndex
+    schedIndex := input.schedIndex
 
     meta_prefetch := DontCare
     meta_access := DontCare
@@ -127,8 +132,13 @@ class LdPrefetchTrainBundle(implicit p: Parameters) extends LsPipelineBundle {
     replayCarry := DontCare
     atomic := DontCare
     isLoadReplay := DontCare
+    isFastPath := DontCare
+    isFastReplay := DontCare
     handledByMSHR := DontCare
     replacementUpdated := DontCare
+    delayedLoadError := DontCare
+    lateKill := DontCare
+    feedbacked := DontCare
     missDbUpdated := DontCare
   }
 
@@ -146,10 +156,10 @@ class StPrefetchTrainBundle(implicit p: Parameters) extends LdPrefetchTrainBundl
 
 class LqWriteBundle(implicit p: Parameters) extends LsPipelineBundle {
   // load inst replay informations
-  val replayInfo = new LoadToLsqReplayIO
+  val rep_info = new LoadToLsqReplayIO
   // queue entry data, except flag bits, will be updated if writeQueue is true,
   // valid bit in LqWriteBundle will be ignored
-  val lqDataWenDup = Vec(6, Bool()) // dirty reg dup
+  val data_wen_dup = Vec(6, Bool()) // dirty reg dup
 
 
   def fromLsPipelineBundle(input: LsPipelineBundle) = {
@@ -172,17 +182,22 @@ class LqWriteBundle(implicit p: Parameters) extends LsPipelineBundle {
     isFirstIssue := input.isFirstIssue
     hasROBEntry := input.hasROBEntry
     isLoadReplay := input.isLoadReplay
+    isFastPath := input.isFastPath
+    isFastReplay := input.isFastReplay
     mshrid := input.mshrid
     forward_tlDchannel := input.forward_tlDchannel
     replayCarry := input.replayCarry
     dcacheRequireReplay := input.dcacheRequireReplay
-    sleepIndex := input.sleepIndex
+    schedIndex := input.schedIndex
     handledByMSHR := input.handledByMSHR
     replacementUpdated := input.replacementUpdated
+    delayedLoadError := input.delayedLoadError
+    lateKill := input.lateKill
+    feedbacked := input.feedbacked
     missDbUpdated := input.missDbUpdated
 
-    replayInfo := DontCare
-    lqDataWenDup := DontCare
+    rep_info := DontCare
+    data_wen_dup := DontCare
   }
 }
 
@@ -234,45 +249,41 @@ class PipeLoadForwardQueryIO(implicit p: Parameters) extends LoadForwardQueryIO 
 }
 
 // Query load queue for ld-ld violation
-// 
+//
 // Req should be send in load_s1
 // Resp will be generated 1 cycle later
 //
 // Note that query req may be !ready, as dcache is releasing a block
 // If it happens, a replay from rs is needed.
-
-class LoadViolationQueryReq(implicit p: Parameters) extends XSBundleWithMicroOp { // provide lqIdx
+class LoadNukeQueryReq(implicit p: Parameters) extends XSBundleWithMicroOp { // provide lqIdx
   // mask: load's data mask.
-  val mask = UInt(8.W)
-
+  val mask       = UInt(8.W)
   // paddr: load's paddr.
-  val paddr = UInt(PAddrBits.W)
-
+  val paddr      = UInt(PAddrBits.W)
   // dataInvalid: load data is invalid.
-  val datavalid = Bool()
+  val data_valid = Bool()
 }
 
-class LoadViolationQueryResp(implicit p: Parameters) extends XSBundle {
-  // replayFromFetch: ld-ld violation check success, replay from fetch.
-  val replayFromFetch = Bool()
+class LoadNukeQueryResp(implicit p: Parameters) extends XSBundle {
+  // rep_frm_fetch: ld-ld violation check success, replay from fetch.
+  val rep_frm_fetch = Bool()
 }
 
-class LoadViolationQueryIO(implicit p: Parameters) extends XSBundle {
-  val req = Decoupled(new LoadViolationQueryReq)
-  val resp = Flipped(Valid(new LoadViolationQueryResp))
-  val preReq = Output(Bool())
-  val release = Output(Bool())
+class LoadNukeQueryIO(implicit p: Parameters) extends XSBundle {
+  val req    = Decoupled(new LoadNukeQueryReq)
+  val resp   = Flipped(Valid(new LoadNukeQueryResp))
+  val revoke = Output(Bool())
 }
 
-class LoadReExecuteQueryIO(implicit p: Parameters) extends XSBundle {
-  //  robIdx: Requestor's (a store instruction) rob index for match logic. 
+class StoreNukeQueryIO(implicit p: Parameters) extends XSBundle {
+  //  robIdx: Requestor's (a store instruction) rob index for match logic.
   val robIdx = new RobPtr
 
-  //  paddr: requestor's (a store instruction) physical address for match logic. 
-  val paddr = UInt(PAddrBits.W)
+  //  paddr: requestor's (a store instruction) physical address for match logic.
+  val paddr  = UInt(PAddrBits.W)
 
   //  mask: requestor's (a store instruction) data width mask for match logic.
-  val mask = UInt(8.W)  
+  val mask   = UInt(8.W)
 }
 
 // Store byte valid mask write bundle
@@ -286,25 +297,25 @@ class StoreMaskBundle(implicit p: Parameters) extends XSBundle {
 class LoadDataFromDcacheBundle(implicit p: Parameters) extends DCacheBundle {
   // old dcache: optimize data sram read fanout
   // val bankedDcacheData = Vec(DCacheBanks, UInt(64.W))
-  // val bank_oh = UInt(DCacheBanks.W)  
-  
+  // val bank_oh = UInt(DCacheBanks.W)
+
   // new dcache
   val respDcacheData = UInt(XLEN.W)
   val forwardMask = Vec(8, Bool())
   val forwardData = Vec(8, UInt(8.W))
   val uop = new MicroOp // for data selection, only fwen and fuOpType are used
   val addrOffset = UInt(3.W) // for data selection
-  
+
   // forward tilelink D channel
-  val forward_D = Input(Bool())
-  val forwardData_D = Input(Vec(8, UInt(8.W)))
+  val forward_D = Bool()
+  val forwardData_D = Vec(8, UInt(8.W))
 
   // forward mshr data
-  val forward_mshr = Input(Bool())
-  val forwardData_mshr = Input(Vec(8, UInt(8.W)))
+  val forward_mshr = Bool()
+  val forwardData_mshr = Vec(8, UInt(8.W))
 
-  val forward_result_valid = Input(Bool())
-  
+  val forward_result_valid = Bool()
+
   def dcacheData(): UInt = {
     // old dcache
     // val dcache_data = Mux1H(bank_oh, bankedDcacheData)
