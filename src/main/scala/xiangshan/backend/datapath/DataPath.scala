@@ -10,6 +10,7 @@ import utils.SeqUtils._
 import xiangshan._
 import xiangshan.backend.BackendParams
 import xiangshan.backend.Bundles._
+import xiangshan.backend.decode.ImmUnion
 import xiangshan.backend.datapath.DataConfig._
 import xiangshan.backend.datapath.RdConfig._
 import xiangshan.backend.issue.{ImmExtractor, IntScheduler, MemScheduler, VfScheduler}
@@ -316,6 +317,11 @@ class DataPathImp(override val wrapper: DataPath)(implicit p: Parameters, params
               s1_data.params.immType.map(_.litValue)
             )
           }
+        } else if (s1_data.params.hasLoadFu) {
+          // dirty code for fused_lui_load
+          when(SrcType.isImm(s0.bits.srcType(0))) {
+            s1_data.src(0) := ImmUnion.U.toImm32(s0.bits.common.imm(s0.bits.common.imm.getWidth - 1, ImmUnion.I.len))
+          }
         }
       }
       // IQ(s0) --[Data]--> s1Reg ---------- end
@@ -333,7 +339,7 @@ class DataPathImp(override val wrapper: DataPath)(implicit p: Parameters, params
           og0FailedVec2(iqIdx)(iuIdx) := fromIQ(iqIdx)(iuIdx).valid && (!fromIQFire(iqIdx)(iuIdx))
           og0resp.valid := og0FailedVec2(iqIdx)(iuIdx)
           og0resp.bits.respType := RSFeedbackType.rfArbitFail
-          og0resp.bits.addrOH := fromIQ(iqIdx)(iuIdx).bits.addrOH
+          og0resp.bits.robIdx := fromIQ(iqIdx)(iuIdx).bits.common.robIdx
           og0resp.bits.rfWen := fromIQ(iqIdx)(iuIdx).bits.common.rfWen.getOrElse(false.B)
           og0resp.bits.fuType := fromIQ(iqIdx)(iuIdx).bits.common.fuType
 
@@ -343,7 +349,7 @@ class DataPathImp(override val wrapper: DataPath)(implicit p: Parameters, params
           og1resp.bits.respType := Mux(!og1FailedVec2(iqIdx)(iuIdx),
             if (toIU.issueQueueParams.isMemAddrIQ) RSFeedbackType.fuUncertain else RSFeedbackType.fuIdle,
             RSFeedbackType.fuBusy)
-          og1resp.bits.addrOH := s1_addrOHs(iqIdx)(iuIdx)
+          og1resp.bits.robIdx := s1_toExuData(iqIdx)(iuIdx).robIdx
           og1resp.bits.rfWen := s1_toExuData(iqIdx)(iuIdx).rfWen.getOrElse(false.B)
           og1resp.bits.fuType := s1_toExuData(iqIdx)(iuIdx).fuType
       }
@@ -393,6 +399,10 @@ class DataPathImp(override val wrapper: DataPath)(implicit p: Parameters, params
           sinkData.src(0) := s1_toExuData(i)(j).src(0)
         }
       } else if (sinkData.params.hasVecFu) {
+        when(SrcType.isImm(s1_srcType(i)(j)(0))) {
+          sinkData.src(0) := s1_toExuData(i)(j).src(0)
+        }
+      } else if (sinkData.params.hasLoadFu) {
         when(SrcType.isImm(s1_srcType(i)(j)(0))) {
           sinkData.src(0) := s1_toExuData(i)(j).src(0)
         }

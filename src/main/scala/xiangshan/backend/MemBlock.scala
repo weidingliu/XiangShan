@@ -36,7 +36,6 @@ import xiangshan.backend.rob.RobLsqIO
 import xiangshan.cache._
 import xiangshan.cache.mmu._
 import xiangshan.mem._
-import xiangshan.mem.mdp._
 import xiangshan.mem.prefetch.{BasePrefecher, SMSParams, SMSPrefetcher}
 
 class Std(cfg: FuConfig)(implicit p: Parameters) extends FuncUnit(cfg) {

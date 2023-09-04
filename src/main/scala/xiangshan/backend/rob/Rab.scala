@@ -215,4 +215,5 @@ class RenameBuffer(size: Int)(implicit p: Parameters) extends XSModule with HasC
   }
 
   XSError(isBefore(enqPtr, deqPtr) && !isFull(enqPtr, deqPtr), "\ndeqPtr is older than enqPtr!\n")
+  QueuePerf(RabSize, numValidEntries, !allowEnqueue)
 }

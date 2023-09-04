@@ -901,7 +901,8 @@ class LoadUnit(implicit p: Parameters) extends XSModule
                                             !s2_hw_prf                  // not hardware prefetch
   io.feedback_fast.bits.hit              := false.B
   io.feedback_fast.bits.flushState       := s2_in.ptwBack
-  io.feedback_fast.bits.rsIdx            := s2_in.rsIdx
+  // io.feedback_fast.bits.rsIdx            := s2_in.rsIdx
+  io.feedback_fast.bits.robIdx           := s2_in.uop.robIdx // TODO: delete it
   io.feedback_fast.bits.sourceType       := RSFeedbackType.lrqFull
   io.feedback_fast.bits.dataInvalidSqIdx := DontCare
 
@@ -1032,7 +1033,8 @@ class LoadUnit(implicit p: Parameters) extends XSModule
   io.feedback_slow.valid                 := s3_valid && !s3_in.uop.robIdx.needFlush(io.redirect) && s3_fb_no_waiting
   io.feedback_slow.bits.hit              := !io.lsq.ldin.bits.rep_info.need_rep || io.lsq.ldin.ready
   io.feedback_slow.bits.flushState       := s3_in.ptwBack
-  io.feedback_slow.bits.rsIdx            := s3_in.rsIdx
+  // io.feedback_slow.bits.rsIdx            := s3_in.rsIdx
+  io.feedback_slow.bits.robIdx           := s3_in.uop.robIdx
   io.feedback_slow.bits.sourceType       := RSFeedbackType.lrqFull
   io.feedback_slow.bits.dataInvalidSqIdx := DontCare
 

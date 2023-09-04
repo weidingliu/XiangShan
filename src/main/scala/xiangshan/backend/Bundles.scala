@@ -15,7 +15,7 @@ import xiangshan.backend.exu.ExeUnitParams
 import xiangshan.backend.fu.FuType
 import xiangshan.backend.fu.fpu.Bundles.Frm
 import xiangshan.backend.fu.vector.Bundles._
-import xiangshan.backend.issue.{IssueBlockParams, IssueQueueJumpBundle, SchedulerType, StatusArrayDeqRespBundle}
+import xiangshan.backend.issue.{IssueBlockParams, IssueQueueDeqRespBundle, IssueQueueJumpBundle, SchedulerType, EntryDeqRespBundle}
 import xiangshan.backend.regfile.{RfReadPortWithConfig, RfWritePortWithConfig}
 import xiangshan.backend.rob.RobPtr
 import xiangshan.frontend._
@@ -65,33 +65,35 @@ object Bundles {
     val ftqPtr          = new FtqPtr
     val ftqOffset       = UInt(log2Up(PredictWidth).W)
     // decoded
-    val srcType       = Vec(numSrc, SrcType())
-    val lsrc          = Vec(numSrc, UInt(6.W))
-    val ldest         = UInt(6.W)
-    val fuType        = FuType()
-    val fuOpType      = FuOpType()
-    val rfWen         = Bool()
-    val fpWen         = Bool()
-    val vecWen        = Bool()
-    val isXSTrap      = Bool()
-    val waitForward   = Bool() // no speculate execution
-    val blockBackward = Bool()
-    val flushPipe     = Bool() // This inst will flush all the pipe when commit, like exception but can commit
-    val selImm        = SelImm()
-    val imm           = UInt(ImmUnion.maxLen.W)
-    val fpu           = new FPUCtrlSignals
-    val vpu           = new VPUCtrlSignals
-    val isMove        = Bool()
-    val uopIdx        = UInt(5.W)
-    val uopSplitType  = UopSplitType()
-    val isVset        = Bool()
-    val firstUop      = Bool()
-    val lastUop       = Bool()
-    val numUops       = UInt(log2Up(MaxUopSize).W) // rob need this
-    val commitType    = CommitType() // Todo: remove it
+    val srcType         = Vec(numSrc, SrcType())
+    val lsrc            = Vec(numSrc, UInt(6.W))
+    val ldest           = UInt(6.W)
+    val fuType          = FuType()
+    val fuOpType        = FuOpType()
+    val rfWen           = Bool()
+    val fpWen           = Bool()
+    val vecWen          = Bool()
+    val isXSTrap        = Bool()
+    val waitForward     = Bool() // no speculate execution
+    val blockBackward   = Bool()
+    val flushPipe       = Bool() // This inst will flush all the pipe when commit, like exception but can commit
+    val canRobCompress  = Bool()
+    val selImm          = SelImm()
+    val imm             = UInt(ImmUnion.maxLen.W)
+    val fpu             = new FPUCtrlSignals
+    val vpu             = new VPUCtrlSignals
+    val wfflags         = Bool()
+    val isMove          = Bool()
+    val uopIdx          = UInt(5.W)
+    val uopSplitType    = UopSplitType()
+    val isVset          = Bool()
+    val firstUop        = Bool()
+    val lastUop         = Bool()
+    val numUops         = UInt(log2Up(MaxUopSize).W) // rob need this
+    val commitType      = CommitType() // Todo: remove it
 
     private def allSignals = srcType.take(3) ++ Seq(fuType, fuOpType, rfWen, fpWen, vecWen,
-      isXSTrap, waitForward, blockBackward, flushPipe, uopSplitType, selImm)
+      isXSTrap, waitForward, blockBackward, flushPipe, canRobCompress, uopSplitType, selImm)
 
     def decode(inst: UInt, table: Iterable[(BitPat, List[BitPat])]): DecodedInst = {
       val decoder: Seq[UInt] = ListLookup(
@@ -142,10 +144,12 @@ object Bundles {
     val waitForward     = Bool() // no speculate execution
     val blockBackward   = Bool()
     val flushPipe       = Bool() // This inst will flush all the pipe when commit, like exception but can commit
+    val canRobCompress  = Bool()
     val selImm          = SelImm()
     val imm             = UInt(XLEN.W) // Todo: check if it need minimized
     val fpu             = new FPUCtrlSignals
     val vpu             = new VPUCtrlSignals
+    val wfflags         = Bool()
     val isMove          = Bool()
     val uopIdx          = UInt(5.W)
     val isVset          = Bool()
@@ -158,6 +162,7 @@ object Bundles {
     val psrc            = Vec(numSrc, UInt(PhyRegIdxWidth.W))
     val pdest           = UInt(PhyRegIdxWidth.W)
     val robIdx          = new RobPtr
+    val instrSize       = UInt(log2Ceil(RenameWidth + 1).W)
 
     val eliminatedMove  = Bool()
     // Take snapshot at this CFI inst
@@ -180,7 +185,8 @@ object Bundles {
     // schedule
     val replayInst      = Bool()
 
-    def isLUI: Bool = this.fuType === FuType.alu.U && this.selImm === SelImm.IMM_U
+    def isLUI: Bool = this.fuType === FuType.alu.U && (this.selImm === SelImm.IMM_U || this.selImm === SelImm.IMM_LUI32)
+    def isLUI32: Bool = this.fuType === FuType.alu.U && this.selImm === SelImm.IMM_LUI32
     def isWFI: Bool = this.fuType === FuType.csr.U && fuOpType === CSROpType.wfi
 
     def isSvinvalBegin(flush: Bool) = FuType.isFence(fuType) && fuOpType === FenceOpType.nofence && !flush
@@ -285,6 +291,8 @@ object Bundles {
 
     // float rounding mode
     val frm       = Frm()
+    // scalar float instr
+    val fpu       = Fpu()
     // vector fix int rounding mode
     val vxrm      = Vxrm()
     // vector uop index, exclude other non-vector uop
@@ -303,6 +311,7 @@ object Bundles {
     val isExt     = Bool()
     val isNarrow  = Bool()
     val isDstMask = Bool() // vvm, vvvm, mmm
+    val isOpMask  = Bool() // vmand, vmnand
     val isMove    = Bool() // vmv.s.x, vmv.v.v, vmv.v.x, vmv.v.i
 
     def vtype: VType = {
@@ -372,8 +381,8 @@ object Bundles {
 
   class OGRespBundle(implicit p:Parameters, params: IssueBlockParams) extends XSBundle {
     val issueQueueParams = this.params
-    val og0resp = Valid(new StatusArrayDeqRespBundle)
-    val og1resp = Valid(new StatusArrayDeqRespBundle)
+    val og0resp = Valid(new EntryDeqRespBundle)
+    val og1resp = Valid(new EntryDeqRespBundle)
   }
 
   class fuBusyRespBundle(implicit p: Parameters, params: IssueBlockParams) extends Bundle {
@@ -425,7 +434,7 @@ object Bundles {
     val rfWen         = if (params.writeIntRf)    Some(Bool())                        else None
     val fpWen         = if (params.writeFpRf)     Some(Bool())                        else None
     val vecWen        = if (params.writeVecRf)    Some(Bool())                        else None
-    val fpu           = if (params.needFPUCtrl)   Some(new FPUCtrlSignals)            else None
+    val fpu           = if (params.writeFflags)   Some(new FPUCtrlSignals)            else None
     val vpu           = if (params.needVPUCtrl)   Some(new VPUCtrlSignals)            else None
     val flushPipe     = if (params.flushPipe)     Some(Bool())                        else None
     val pc            = if (params.needPc)        Some(UInt(VAddrData().dataWidth.W)) else None
@@ -512,6 +521,7 @@ object Bundles {
     val vecWen       = if (params.writeVecRf)   Some(Bool())                  else None
     val redirect     = if (params.hasRedirect)  Some(ValidIO(new Redirect))   else None
     val fflags       = if (params.writeFflags)  Some(UInt(5.W))               else None
+    val wflags       = if (params.writeFflags)  Some(Bool())                  else None
     val vxsat        = if (params.writeVxsat)   Some(Bool())                  else None
     val exceptionVec = if (params.exceptionOut.nonEmpty) Some(ExceptionVec()) else None
     val flushPipe    = if (params.flushPipe)    Some(Bool())                  else None

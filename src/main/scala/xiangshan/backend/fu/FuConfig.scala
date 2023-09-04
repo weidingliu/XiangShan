@@ -239,7 +239,7 @@ object FuConfig {
     ),
     piped = true,
     writeIntRf = true,
-    immType = Set(SelImm.IMM_I, SelImm.IMM_U),
+    immType = Set(SelImm.IMM_I, SelImm.IMM_U, SelImm.IMM_LUI32),
   )
 
   val MulCfg: FuConfig = FuConfig (
@@ -474,6 +474,7 @@ object FuConfig {
     vconfigWakeUp = true,
     maskWakeUp = true,
     dataBits = 128,
+    exceptionOut = Seq(illegalInstr),
     immType = Set(SelImm.IMM_OPIVIU, SelImm.IMM_OPIVIS),
   )
 
@@ -491,6 +492,7 @@ object FuConfig {
     vconfigWakeUp = true,
     maskWakeUp = true,
     dataBits = 128,
+    exceptionOut = Seq(illegalInstr),
   )
 
   val VppuCfg = FuConfig (
@@ -507,6 +509,7 @@ object FuConfig {
     vconfigWakeUp = true,
     maskWakeUp = true,
     dataBits = 128,
+    exceptionOut = Seq(illegalInstr),
     immType = Set(SelImm.IMM_OPIVIU, SelImm.IMM_OPIVIS),
   )
 
@@ -523,6 +526,7 @@ object FuConfig {
     vconfigWakeUp = true,
     maskWakeUp = true,
     dataBits = 128,
+    exceptionOut = Seq(illegalInstr),
   )
 
   val VfaluCfg = FuConfig (
@@ -534,11 +538,14 @@ object FuConfig {
     ),
     piped = true,
     writeVecRf = true,
+    writeFpRf = true,
+    writeIntRf = true,
     writeFflags = true,
     latency = CertainLatency(1),
     vconfigWakeUp = true,
     maskWakeUp = true,
     dataBits = 128,
+    exceptionOut = Seq(illegalInstr),
   )
 
   val VfmaCfg = FuConfig (
@@ -550,11 +557,13 @@ object FuConfig {
     ),
     piped = true,
     writeVecRf = true,
+    writeFpRf = true,
     writeFflags = true,
     latency = CertainLatency(3),
     vconfigWakeUp = true,
     maskWakeUp = true,
     dataBits = 128,
+    exceptionOut = Seq(illegalInstr),
   )
 
   val VfdivCfg = FuConfig(
@@ -566,11 +575,13 @@ object FuConfig {
     ),
     piped = false,
     writeVecRf = true,
+    writeFpRf = true,
     writeFflags = true,
     latency = UncertainLatency(),
     vconfigWakeUp = true,
     maskWakeUp = true,
     dataBits = 128,
+    exceptionOut = Seq(illegalInstr),
   )
 
   val VlduCfg: FuConfig = FuConfig (
