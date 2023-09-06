@@ -173,16 +173,12 @@ class VlflowBundle(implicit p: Parameters) extends VLSUBundle {
   val vaddr             = UInt(VAddrBits.W)
   val mask              = UInt(VLENB.W)
   val unit_stride_fof   = Bool()
-  // val rob_idx_valid     = Vec(2,Bool())
-  // val rob_idx           = Vec(2,new RobPtr)
-  // val inner_idx         = Vec(2,UInt(3.W)) // what is this?????
   val reg_offset        = UInt(vOffsetBits.W)
-  // val offset            = Vec(2,UInt(4.W))
   val alignedType       = UInt(alignTypeBits.W)
   val exp               = Bool()
   val flow_idx          = UInt(elemIdxBits.W)
   val is_first_ele      = Bool()
-  val uopQueuePtr = new VluopPtr
+  val uopQueuePtr       = new VluopPtr
 }
 
 class unitStrideBundle(implicit p: Parameters) extends VLSUBundle {
@@ -200,6 +196,91 @@ class VlFlowQueue(implicit p: Parameters) extends VLSUModule
     */
   io <> DontCare
 
+  /* Storage */
+
+  // circuit queue for flows
+  val flowQueueBundles = RegInit(VecInit(List.fill(VlFlowSize)(0.U.asTypeOf(new VlflowBundle))))
+  // mark whether a flow is finished
+  //   1: finished and can be dequeued
+  //   2: issued but not finished
+  val flowFinished = RegInit(VecInit(List.fill(VlFlowSize)(false.B)))
+  // loaded data from load unit
+  val flowLoadData = RegInit(VecInit(List.fill(VlFlowSize)(0.U(VLEN.W))))
+
+
+  /* Queue Pointers */
+
+  // enqueue pointers, enqPtr(0) is the exact one
+  val enqPtr = RegInit(VecInit((0 until VecLoadPipelineWidth).map(_.U.asTypeOf(new VlflowPtr))))
+  // dequeue pointers, deqPtr(0) is the exact one
+  val deqPtr = RegInit(VecInit((0 until VecLoadPipelineWidth).map(_.U.asTypeOf(new VlflowPtr))))
+  // issue pointers, issuePtr(0) is the exact one
+  val issuePtr = RegInit(VecInit((0 until VecLoadPipelineWidth).map(_.U.asTypeOf(new VlflowPtr))))
+  
+
+  /* Enqueue logic */
+
+  // only allow enqueue when free queue terms >= VecLoadPipelineWidth(=2)
+  val freeCount = distanceBetween(deqPtr(0), enqPtr(0))
+  val allowEnqueue = freeCount >= VecLoadPipelineWidth.U
+  for (i <- 0 until VecLoadPipelineWidth) {
+    io.flowIn(i).ready := allowEnqueue
+  }
+
+  val canEnqueue = io.flowIn.map(_.valid)
+  val needCancel = io.flowIn.map(_.bits.uop.robIdx.needFlush(io.redirect))
+
+  val doEnqueue = Wire(Vec(VecLoadPipelineWidth, Bool()))
+  val enqueueCount = 0.U(log2Up(VecLoadPipelineWidth + 1).W)
+
+  // enqueue flows
+  for (i <- 0 until VecLoadPipelineWidth) {
+    doEnqueue(i) := allowEnqueue && canEnqueue(i) && !needCancel(i)
+    // Assuming that if io.flowIn(i).valid then io.flowIn(i-1).valid
+    when (doEnqueue(i)) {
+      flowQueueBundles(enqPtr(i).value) := io.flowIn(i)
+      enqueueCount := i.U
+    }
+  }
+
+  // update enqPtr
+  // TODO: when redirect happens, need to subtract flushed flows 
+  for (i <- 0 until VecLoadPipelineWidth) {
+    enqPtr(i) := enqPtr(i) + enqueueCount
+  }
+
+
+  /* Dequeue logic */
+
+  val canDequeue = Wire(Vec(VecLoadPipelineWidth, Bool()))
+  for (i <- 0 until VecLoadPipelineWidth) {
+    if (i == 0) {
+      canDequeue(i) := flowFinished(i) && deqPtr(i) < issuePtr(0)
+    } else {
+      canDequeue(i) := flowFinished(i) && deqPtr(i) < issuePtr(0) && canDequeue(i - 1)
+    }
+    io.flowWriteback(i).valid := canDequeue(i)
+  }
+
+  val allowDequeue = io.flowWriteback.map(_.ready)
+  val doDequeue = Wire(Vec(VecLoadPipelineWidth, Bool()))
+  val dequeueCount = 0.U(log2Up(VecLoadPipelineWidth + 1).W)
+
+  for (i <- 0 until VecLoadPipelineWidth) {
+    doDequeue(i) := canDequeue(i) && allowDequeue(i)
+  
+    when (doDequeue(i)) {
+      dequeueCount := i.U
+    }
+  }
+
+  // update deqPtr
+  for (i <- 0 until VecLoadPipelineWidth) {
+    deqPtr(i) := deqPtr(i) + dequeueCount
+  }
+
+
+  /* Execute logic */
 
 
 //   dontTouch(io.loadRegIn)
@@ -510,7 +591,7 @@ class VlFlowQueue(implicit p: Parameters) extends VLSUModule
 //     // TODO: Need to do some changes
 //     //  1. DontCare?
 //     //  2. Other information?
-//     io.loadPipeOut(i).bits := DontCare
+//     io.loadPipeOut(i).bits := DontCarer
 //     io.loadPipeOut(i).valid := false.B
 //     when (flow_entry_valid(i)(deqPtr(i).value)){
 //       io.loadPipeOut(i).valid                    := true.B
