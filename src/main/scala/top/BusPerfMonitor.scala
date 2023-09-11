@@ -21,7 +21,7 @@ import freechips.rocketchip.diplomacy.{AdapterNode, LazyModule, LazyModuleImp}
 import freechips.rocketchip.tilelink._
 import chisel3._
 import chisel3.util._
-import utils.{XSPerfAccumulate, XSPerfPrint}
+import utils.XSPerfAccumulate
 import freechips.rocketchip.tilelink.TLMessages._
 import freechips.rocketchip.tilelink.TLPermissions._
 import utility.{MemReqSource, ReqSourceField, ReqSourceKey, GTimer}

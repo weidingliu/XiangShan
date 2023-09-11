@@ -24,7 +24,6 @@ import chiseltest.simulator.VerilatorFlags
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.must.Matchers
 import firrtl.stage.RunFirrtlTransformAnnotation
-import xstransforms.PrintModuleName
 
 import xiangshan.backend.fu._
 
@@ -73,8 +72,7 @@ class IntDividerTest extends AnyFlatSpec with ChiselScalatestTester with Matcher
       // ToggleCoverageAnnotation,
       VerilatorFlags(Seq(
         // "--output-split 20", "--output-split-cfuncs 20",
-        "+define+RANDOMIZE_REG_INIT", "+define+RANDOMIZE_MEM_INIT", "--trace")),
-      RunFirrtlTransformAnnotation(new PrintModuleName))){ m =>
+        "+define+RANDOMIZE_REG_INIT", "+define+RANDOMIZE_MEM_INIT", "--trace")))) { m =>
       println("Test started!")
       m.clock.step(20)
 

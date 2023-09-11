@@ -19,7 +19,7 @@ package utils
 import chipsalliance.rocketchip.config.Parameters
 import chisel3._
 import chisel3.util._
-import utility.ChiselDB
+import utility.{ChiselDB, PerfAccumulateHelper,PerfHistogramHelper, PerfMaxHelper}
 import xiangshan.DebugOptionsKey
 import xiangshan._
 
@@ -41,20 +41,9 @@ object XSPerfAccumulate extends HasRegularPerfName {
     judgeName(perfName)
     val env = p(DebugOptionsKey)
     if (env.EnablePerfDebug && !env.FPGAPlatform) {
-      val logTimestamp = WireInit(0.U(64.W))
-      val perfClean = WireInit(false.B)
-      val perfDump = WireInit(false.B)
-      ExcitingUtils.addSink(logTimestamp, "logTimestamp")
-      ExcitingUtils.addSink(perfClean, "XSPERF_CLEAN")
-      ExcitingUtils.addSink(perfDump, "XSPERF_DUMP")
-
-      val counter = RegInit(0.U(64.W))
-      val next_counter = counter + perfCnt
-      counter := Mux(perfClean, 0.U, next_counter)
-
-      when (perfDump) {
-        XSPerfPrint(p"$perfName, $next_counter\n")
-      }
+      val helper = Module(new PerfAccumulateHelper)
+      helper.io.inc := perfCnt
+      helper.io.name := Cat(perfName.toCharArray().map(_.U(8.W)))
     }
   }
 }
@@ -77,61 +66,20 @@ object XSPerfHistogram extends HasRegularPerfName {
     judgeName(perfName)
     val env = p(DebugOptionsKey)
     if (env.EnablePerfDebug && !env.FPGAPlatform) {
-      val logTimestamp = WireInit(0.U(64.W))
-      val perfClean = WireInit(false.B)
-      val perfDump = WireInit(false.B)
-      ExcitingUtils.addSink(logTimestamp, "logTimestamp")
-      ExcitingUtils.addSink(perfClean, "XSPERF_CLEAN")
-      ExcitingUtils.addSink(perfDump, "XSPERF_DUMP")
-
-      val sum = RegInit(0.U(64.W))
-      val nSamples = RegInit(0.U(64.W))
-      when (perfClean) {
-        sum := 0.U
-        nSamples := 0.U
-      } .elsewhen (enable) {
-        sum := sum + perfCnt
-        nSamples := nSamples + 1.U
-      }
-
-      when (perfDump) {
-        XSPerfPrint(p"${perfName}_mean, ${sum/nSamples}\n")
-      }
-      
-      // drop each perfCnt value into a bin
       val nBins = (stop - start) / step
       require(start >= 0)
       require(stop > start)
       require(nBins > 0)
-
-      (0 until nBins) map { i =>
-        val binRangeStart = start + i * step
-        val binRangeStop = start + (i + 1) * step
-        val inRange = perfCnt >= binRangeStart.U && perfCnt < binRangeStop.U
-
-        // if perfCnt < start, it will go to the first bin
-        val leftOutOfRange = if(left_strict)
-          false.B
-        else 
-          perfCnt < start.U && i.U === 0.U
-        // if perfCnt >= stop, it will go to the last bin
-        val rightOutOfRange = if(right_strict)
-          false.B
-        else 
-          perfCnt >= stop.U && i.U === (nBins - 1).U
-        val inc = inRange || leftOutOfRange || rightOutOfRange
-
-        val counter = RegInit(0.U(64.W))
-        when (perfClean) {
-          counter := 0.U
-        } .elsewhen(enable && inc) {
-          counter := counter + 1.U
-        }
-
-        when (perfDump) {
-          XSPerfPrint(p"${perfName}_${binRangeStart}_${binRangeStop}, $counter\n")
-        }
-      }
+      val helper = Module(new PerfHistogramHelper)
+      helper.io.inc := perfCnt
+      helper.io.enable := enable
+      helper.io.start := start.U
+      helper.io.stop := stop.U
+      helper.io.step := step.U
+      helper.io.nBins := nBins.U
+      helper.io.left_strict := left_strict.B
+      helper.io.right_strict := right_strict.B
+      helper.io.name := Cat(perfName.toCharArray().map(_.U(8.W)))
     }
   }
 }
@@ -141,20 +89,10 @@ object XSPerfMax extends HasRegularPerfName {
     judgeName(perfName)
     val env = p(DebugOptionsKey)
     if (env.EnablePerfDebug && !env.FPGAPlatform) {
-      val logTimestamp = WireInit(0.U(64.W))
-      val perfClean = WireInit(false.B)
-      val perfDump = WireInit(false.B)
-      ExcitingUtils.addSink(logTimestamp, "logTimestamp")
-      ExcitingUtils.addSink(perfClean, "XSPERF_CLEAN")
-      ExcitingUtils.addSink(perfDump, "XSPERF_DUMP")
-
-      val max = RegInit(0.U(64.W))
-      val next_max = Mux(enable && (perfCnt > max), perfCnt, max)
-      max := Mux(perfClean, 0.U, next_max)
-
-      when (perfDump) {
-        XSPerfPrint(p"${perfName}_max, $next_max\n")
-      }
+      val helper = Module(new PerfMaxHelper)
+      helper.io.inc := perfCnt
+      helper.io.enable := enable
+      helper.io.name := Cat(perfName.toCharArray().map(_.U(8.W)))
     }
   }
 }
@@ -209,12 +147,6 @@ object XSPerfRolling extends HasRegularPerfName {
     if (env.EnableRollingDB && !env.FPGAPlatform) {
       val tableName = perfName + "_rolling_" + p(XSCoreParamsKey).HartId.toString
       val rollingTable = ChiselDB.createTable(tableName, new RollingEntry(), basicDB=true)
-      val logTimestamp = WireInit(0.U(64.W))
-      val perfClean = WireInit(false.B)
-      val perfDump = WireInit(false.B)
-      ExcitingUtils.addSink(logTimestamp, "logTimestamp")
-      ExcitingUtils.addSink(perfClean, "XSPERF_CLEAN")
-      ExcitingUtils.addSink(perfDump, "XSPERF_DUMP")
 
       val xAxisCnt = RegInit(0.U(64.W))
       val yAxisCnt = RegInit(0.U(64.W))
@@ -248,12 +180,6 @@ object XSPerfRolling extends HasRegularPerfName {
     if (env.EnableRollingDB && !env.FPGAPlatform) {
       val tableName = perfName + "_rolling_" + p(XSCoreParamsKey).HartId.toString
       val rollingTable = ChiselDB.createTable(tableName, new RollingEntry(), basicDB=true)
-      val logTimestamp = WireInit(0.U(64.W))
-      val perfClean = WireInit(false.B)
-      val perfDump = WireInit(false.B)
-      ExcitingUtils.addSink(logTimestamp, "logTimestamp")
-      ExcitingUtils.addSink(perfClean, "XSPERF_CLEAN")
-      ExcitingUtils.addSink(perfDump, "XSPERF_DUMP")
 
       val xAxisCnt = RegInit(0.U(64.W))
       val yAxisCnt = RegInit(0.U(64.W))
@@ -272,12 +198,6 @@ object XSPerfRolling extends HasRegularPerfName {
       val rollingPt = new RollingEntry().apply(xAxisPt, yAxisCnt)
       rollingTable.log(rollingPt, triggerDB, "", clock, reset)
     }
-  }
-}
-
-object XSPerfPrint {
-  def apply(pable: Printable)(implicit p: Parameters): Any = {
-    XSLog(XSLogLevel.PERF)(true, true.B, pable)
   }
 }
 

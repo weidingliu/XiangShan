@@ -75,7 +75,6 @@ object Generator {
         (new XiangShanStage).execute(args, Seq(
           ChiselGeneratorAnnotation(mod _),
           RunFirrtlTransformAnnotation(new PrintControl),
-          RunFirrtlTransformAnnotation(new PrintModuleName),
           RunFirrtlTransformAnnotation(new RenameDesiredNames)
         ))
       case _ =>

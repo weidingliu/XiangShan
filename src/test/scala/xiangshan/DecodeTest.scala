@@ -10,7 +10,6 @@ import freechips.rocketchip.util.HasRocketChipStageUtils
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.must.Matchers
 import firrtl.stage.RunFirrtlTransformAnnotation
-import xstransforms.PrintModuleName
 import firrtl.options.TargetDirAnnotation
 import top.ArgParser
 import utility.FileRegisters
@@ -44,8 +43,7 @@ class DecodeUnitTest extends XSTester {
       VerilatorBackendAnnotation,
       VerilatorFlags(Seq()),
       WriteVcdAnnotation,
-      TargetDirAnnotation("./build"),
-      RunFirrtlTransformAnnotation(new PrintModuleName)
+      TargetDirAnnotation("./build")
     )){ dut =>
       dut.clock.step(10)
     }

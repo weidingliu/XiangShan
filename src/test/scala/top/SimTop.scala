@@ -86,20 +86,6 @@ class SimTop(implicit p: Parameters) extends Module {
 
   simMMIO.io.uart <> io.uart
 
-  if (!debugOpts.FPGAPlatform && (debugOpts.EnableDebug || debugOpts.EnablePerfDebug)) {
-    val timer = GTimer()
-    val logEnable = (timer >= io.logCtrl.log_begin) && (timer < io.logCtrl.log_end)
-    ExcitingUtils.addSource(logEnable, "DISPLAY_LOG_ENABLE")
-    ExcitingUtils.addSource(timer, "logTimestamp")
-  }
-
-  if (!debugOpts.FPGAPlatform && debugOpts.EnablePerfDebug) {
-    val clean = io.perfInfo.clean
-    val dump = io.perfInfo.dump
-    ExcitingUtils.addSource(clean, "XSPERF_CLEAN")
-    ExcitingUtils.addSource(dump, "XSPERF_DUMP")
-  }
-
   // Check and dispaly all source and sink connections
   ExcitingUtils.fixConnections()
   ExcitingUtils.checkAndDisplay()
