@@ -8,6 +8,7 @@ import utils.{MathUtils, OptionWrapper}
 import xiangshan._
 import xiangshan.backend.Bundles._
 import xiangshan.backend.fu.FuType
+import xiangshan.backend.fu.FuType.{isVLoad,isVStore}
 import xiangshan.backend.datapath.DataSource
 import xiangshan.backend.rob.RobPtr
 import xiangshan.mem.{MemWaitUpdateReq, SqPtr, LqPtr}
@@ -320,9 +321,9 @@ class EnqEntryVecMemAddr()(implicit p: Parameters, params: IssueBlockParams) ext
 
   val isLsqHead = {
     // if (params.isVecLdAddrIQ)
-      entryRegNext.status.vecMem.get.lqIdx <= fromLsq.lqDeqPtr &&
+      isVLoad(entryRegNext.status.fuType) && entryRegNext.status.vecMem.get.lqIdx <= fromLsq.lqDeqPtr ||
     // else
-      entryRegNext.status.vecMem.get.sqIdx <= fromLsq.sqDeqPtr
+      isVStore(entryRegNext.status.fuType) && entryRegNext.status.vecMem.get.sqIdx <= fromLsq.sqDeqPtr
   }
 
   entryRegNext.status.blocked := shouldBlock && blockNotReleased && blockedByOlderStore || respBlock || !isLsqHead
