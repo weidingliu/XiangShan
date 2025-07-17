@@ -39,6 +39,7 @@ class MisBuffertoVecSplitIO(implicit p: Parameters) extends XSBundle {
   val empty  = Bool()
   val robIdx = new RobPtr
   val uopIdx = UopIdx()
+  val isIdle = Bool() // only state is idle can be occupy
 }
 class StoreMisalignBuffer(implicit p: Parameters) extends XSModule
   with HasCircularQueuePtrHelper
@@ -207,6 +208,7 @@ class StoreMisalignBuffer(implicit p: Parameters) extends XSModule
   io.toVecSplit.empty  := !req_valid
   io.toVecSplit.robIdx := req.uop.robIdx
   io.toVecSplit.uopIdx := req.uop.uopIdx
+  io.toVecSplit.isIdle := bufferState === s_idle
 
   //logic
   val splitStoreReqs = RegInit(VecInit(List.fill(maxSplitNum)(0.U.asTypeOf(new LsPipelineBundle))))
